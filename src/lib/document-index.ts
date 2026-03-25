@@ -329,7 +329,11 @@ export async function getFeaturedCitations(query: string, maxResults = 6) {
     .slice(0, maxResults)
     .map((entry) => entry.section);
 
-  return ranked;
+  if (ranked.length > 0) {
+    return ranked;
+  }
+
+  return knowledgeBase.sections.slice(0, maxResults);
 }
 
 export function toCitations(sections: KnowledgeSection[]): Citation[] {

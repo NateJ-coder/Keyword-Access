@@ -2,11 +2,13 @@
 
 import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
 
-import type { Citation, ChatMessage, KnowledgeSection, TopicSummary } from "@/lib/types";
+import type { Citation, ChatMessage, KnowledgeSection, SourceDocument, TopicSummary } from "@/lib/types";
 
 type ChatWorkspaceProps = {
   featuredTopics: TopicSummary[];
   featuredSections: KnowledgeSection[];
+  documents: SourceDocument[];
+  totalSections: number;
 };
 
 type AssistantMessage = ChatMessage & {
@@ -19,7 +21,7 @@ const SUGGESTED_PROMPTS = [
   "What should I check before assuming a property-use restriction is legally enforceable?"
 ];
 
-export function ChatWorkspace({ featuredTopics, featuredSections }: ChatWorkspaceProps) {
+export function ChatWorkspace({ featuredTopics, featuredSections, documents, totalSections }: ChatWorkspaceProps) {
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
@@ -98,18 +100,36 @@ export function ChatWorkspace({ featuredTopics, featuredSections }: ChatWorkspac
         <div className="chat-header">
           <div>
             <p className="eyebrow">South African Property Research</p>
-            <h1>Ask the knowledge base first.</h1>
+            <h1>Ask a property-law question.</h1>
           </div>
           <p className="subtle-copy">
-            Start with a property dispute, conduct issue, lease question, or governance problem. Responses are grounded in the uploaded Word documents.
+            Start with the facts. Gemini answers against the indexed Word-document knowledge base and should point back to the relevant provisions.
           </p>
+        </div>
+
+        <div className="knowledge-bar">
+          <div className="knowledge-bar-copy">
+            <p className="knowledge-bar-title">Active knowledge base</p>
+            <p className="knowledge-bar-text">
+              {documents.length} source document{documents.length === 1 ? "" : "s"} loaded, {totalSections} indexed sections.
+            </p>
+          </div>
+          <div className="knowledge-file-list">
+            {documents.slice(0, 3).map((document) => (
+              <span key={document.relativePath} className="knowledge-file-pill">
+                {document.relativePath}
+              </span>
+            ))}
+          </div>
         </div>
 
         <div className="message-stack">
           {messages.length === 0 ? (
             <div className="empty-chat-state">
               <p className="empty-title">Open chat</p>
-              <p className="empty-copy">Describe the facts, include the building or scheme context, and ask what the documents appear to allow or prohibit.</p>
+              <p className="empty-copy">
+                Describe the facts, include the building or scheme context, and ask what the indexed documents appear to allow, prohibit, or leave unresolved.
+              </p>
               <div className="chip-row">
                 {promptChips.map((prompt) => (
                   <button key={prompt} type="button" className="prompt-chip" onClick={() => setQuestion(prompt)}>
@@ -143,7 +163,7 @@ export function ChatWorkspace({ featuredTopics, featuredSections }: ChatWorkspac
           {isLoading ? (
             <article className="message-bubble assistant pending">
               <p className="message-role">Gemini</p>
-              <p className="subtle-copy">Reviewing the indexed source material and drafting a grounded answer.</p>
+              <p className="subtle-copy">Reviewing the indexed source material and drafting a citation-first answer.</p>
             </article>
           ) : null}
 
@@ -158,7 +178,7 @@ export function ChatWorkspace({ featuredTopics, featuredSections }: ChatWorkspac
             id="question"
             className="composer-input primary"
             rows={5}
-            placeholder="Example: Person X in Building Y keeps obstructing access and ignoring conduct rules. I want to dispute the behaviour. What do the rules appear to allow?"
+            placeholder="Example: A resident in Scheme Y keeps obstructing access and ignoring conduct rules. I want to dispute the behaviour. What do the indexed documents appear to allow?"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -171,13 +191,13 @@ export function ChatWorkspace({ featuredTopics, featuredSections }: ChatWorkspac
             id="context"
             className="composer-input secondary"
             rows={3}
-            placeholder="Add names, dates, scheme type, what the trustees or landlord already did, and which facts are disputed."
+            placeholder="Add names, dates, scheme type, what the trustees or landlord already did, and which facts are disputed or undocumented."
             value={context}
             onChange={(event) => setContext(event.target.value)}
           />
 
           <div className="composer-actions">
-            <p className="subtle-copy">This is research support, not legal advice. It should point users back to the relevant clauses and articles.</p>
+            <p className="subtle-copy">This is research support, not legal advice. The answer should separate what the documents support from what still needs a lawyer or more facts.</p>
             <button type="submit" className="primary-button" disabled={isLoading || !question.trim()}>
               {isLoading ? "Thinking..." : "Ask Gemini"}
             </button>
@@ -202,7 +222,7 @@ export function ChatWorkspace({ featuredTopics, featuredSections }: ChatWorkspac
         </section>
 
         <section className="surface-panel insight-panel">
-          <p className="eyebrow">Featured Articles</p>
+          <p className="eyebrow">Retrieved from documents</p>
           <div className="article-stack">
             {featuredSections.map((section) => (
               <article key={section.id} className="article-card">

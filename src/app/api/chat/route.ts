@@ -5,6 +5,17 @@ import type { ChatMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const SYSTEM_INSTRUCTION = [
+  "You are Keyword Access, a South African property-law research assistant.",
+  "You are not a law firm and you do not provide legal advice.",
+  "Use only the supplied retrieved source material from the indexed Word documents.",
+  "If the source material does not support a proposition, say that clearly and do not infer beyond the text.",
+  "When the user asks if something is legal, separate what appears supported by the documents from what remains uncertain or fact-dependent.",
+  "Prefer clear, practical writing over academic prose.",
+  "Always structure the answer under these exact headings: Short answer, What the documents support, What is unclear or missing, Practical next step, Sources used.",
+  "In Sources used, cite only the exact document and section titles provided in the retrieved material."
+].join(" ");
+
 function formatConversation(messages: ChatMessage[]) {
   return messages.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
 }
@@ -30,6 +41,18 @@ export async function POST(request: Request) {
     }
 
     const relevantSections = await getFeaturedCitations(`${latestUserMessage}\n${context ?? ""}`);
+
+    if (relevantSections.length === 0) {
+      return NextResponse.json(
+        {
+          answer:
+            "Short answer\n\nI could not find any indexed source material to support an answer yet.\n\nWhat the documents support\n\nNo matching sections were retrieved from the current Word-document knowledge base.\n\nWhat is unclear or missing\n\nThe question may need more factual detail, or the relevant document may not have been indexed yet.\n\nPractical next step\n\nTry naming the scheme type, the dispute, and the rule or conduct issue involved.\n\nSources used\n\nNone retrieved.",
+          citations: []
+        },
+        { status: 200 }
+      );
+    }
+
     const sourcesBlock = relevantSections
       .map((section, index) => {
         return [`Source ${index + 1}`, `Document: ${section.documentName}`, `Title: ${section.title}`, `Topics: ${section.topics.join(", ")}`, section.content].join("\n");
@@ -37,14 +60,10 @@ export async function POST(request: Request) {
       .join("\n\n---\n\n");
 
     const prompt = [
-      "You are a South African real-estate law research assistant.",
-      "Answer only from the supplied source material. If the sources do not support a point, say so explicitly.",
-      "Do not present yourself as a lawyer and do not give definitive legal advice.",
-      "Be practical: identify what appears legally supported, what appears unsupported, and what factual gaps remain.",
-      "Cite the relevant source titles exactly as provided in a final section named Sources used.",
-      "If the user asks whether something is legal, distinguish between what the indexed material appears to allow and what would still require legal counsel.",
-      context ? `Additional user context: ${context}` : "",
-      `Conversation so far:\n${formatConversation(safeMessages)}`,
+      "User question:",
+      latestUserMessage,
+      context ? `Additional context:\n${context}` : "",
+      safeMessages.length > 1 ? `Conversation so far:\n${formatConversation(safeMessages)}` : "",
       `Retrieved source material:\n${sourcesBlock}`
     ]
       .filter(Boolean)
@@ -58,6 +77,13 @@ export async function POST(request: Request) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
+          systemInstruction: {
+            parts: [
+              {
+                text: SYSTEM_INSTRUCTION
+              }
+            ]
+          },
           contents: [
             {
               role: "user",

@@ -6,8 +6,10 @@ export default async function HomePage() {
 
   return (
     <ChatWorkspace
+      documents={knowledgeBase.documents}
       featuredTopics={knowledgeBase.topics.slice(0, 6)}
       featuredSections={knowledgeBase.sections.slice(0, 5)}
+      totalSections={knowledgeBase.sections.length}
     />
   );
 }

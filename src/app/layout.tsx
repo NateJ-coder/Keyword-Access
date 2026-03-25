@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
-import { Fraunces, Manrope } from "next/font/google";
+import { Merriweather, Source_Sans_3 } from "next/font/google";
 
 import { NavTabs } from "@/components/NavTabs";
 
 import "./globals.css";
 
-const headingFont = Fraunces({
+const headingFont = Merriweather({
   variable: "--font-heading",
+  weight: ["400", "700"],
   subsets: ["latin"]
 });
 
-const bodyFont = Manrope({
+const bodyFont = Source_Sans_3({
   variable: "--font-body",
   subsets: ["latin"]
 });
