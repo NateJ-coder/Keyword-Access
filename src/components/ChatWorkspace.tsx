@@ -194,11 +194,20 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
                 ))}
               </div>
               {message.role === "assistant" && message.citations && message.citations.length > 0 ? (
-                <div className="citation-list">
+                <div className="citation-grid">
                   {message.citations.map((citation) => (
-                    <span key={citation.id} className="citation-pill">
-                      {citation.documentName}: {citation.title}
-                    </span>
+                    <article key={citation.id} className="citation-card">
+                      <p className="article-metadata">{citation.documentName}</p>
+                      <strong>{citation.title}</strong>
+                      <p>{citation.excerpt}</p>
+                      <div className="citation-list">
+                        {citation.topics.map((topic) => (
+                          <span key={`${citation.id}-${topic}`} className="citation-pill">
+                            {topic}
+                          </span>
+                        ))}
+                      </div>
+                    </article>
                   ))}
                 </div>
               ) : null}

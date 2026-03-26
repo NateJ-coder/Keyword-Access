@@ -40,4 +40,5 @@ export type Citation = {
   documentName: string;
   title: string;
   topics: string[];
+  excerpt: string;
 };

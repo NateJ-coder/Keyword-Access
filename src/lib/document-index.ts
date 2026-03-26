@@ -452,6 +452,7 @@ export function toCitations(sections: KnowledgeSection[]): Citation[] {
     id: section.id,
     documentName: section.documentName,
     title: section.title,
-    topics: section.topics
+    topics: section.topics,
+    excerpt: section.preview
   }));
 }
