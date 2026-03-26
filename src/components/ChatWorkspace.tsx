@@ -98,45 +98,90 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
     <div className="chat-shell">
       <section className="chat-column surface-panel">
         <div className="chat-header">
-          <div>
+          <div className="chat-title-block">
             <p className="eyebrow">South African Property Research</p>
             <h1>Ask a property-law question.</h1>
+            <p className="subtle-copy lead-copy">
+              Ask in plain English. The assistant searches the indexed legal documents first, then answers with citations and gaps.
+            </p>
           </div>
           <p className="subtle-copy">
-            Start with the facts. Gemini answers against the indexed Word-document knowledge base and should point back to the relevant provisions.
+            Start with the facts: the scheme, the conduct, what has happened already, and what you want to challenge or enforce.
           </p>
         </div>
 
-        <div className="knowledge-bar">
-          <div className="knowledge-bar-copy">
-            <p className="knowledge-bar-title">Active knowledge base</p>
-            <p className="knowledge-bar-text">
-              {documents.length} source document{documents.length === 1 ? "" : "s"} loaded, {totalSections} indexed sections.
-            </p>
+        <div className="utility-row">
+          <div className="knowledge-bar">
+            <div className="knowledge-bar-copy">
+              <p className="knowledge-bar-title">Active knowledge base</p>
+              <p className="knowledge-bar-text">
+                {documents.length} source document{documents.length === 1 ? "" : "s"} loaded, {totalSections} indexed sections.
+              </p>
+            </div>
+            <div className="knowledge-file-list">
+              {documents.slice(0, 3).map((document) => (
+                <span key={document.relativePath} className="knowledge-file-pill">
+                  {document.relativePath}
+                </span>
+              ))}
+            </div>
           </div>
-          <div className="knowledge-file-list">
-            {documents.slice(0, 3).map((document) => (
-              <span key={document.relativePath} className="knowledge-file-pill">
-                {document.relativePath}
-              </span>
-            ))}
+
+          <div className="quick-guide surface-panel compact-panel">
+            <p className="knowledge-bar-title">Ask better questions</p>
+            <p className="knowledge-bar-text">Include the scheme type, the rule issue, money involved, and who has already been notified.</p>
           </div>
         </div>
 
-        <div className="message-stack">
+        <form className="composer top-composer" onSubmit={handleSubmit}>
+          <label className="field-label" htmlFor="question">
+            Question
+          </label>
+          <textarea
+            id="question"
+            className="composer-input primary"
+            rows={4}
+            placeholder="Example: An owner in a sectional title scheme has not paid levies for several months. What remedies appear to be available to the body corporate under the indexed documents?"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+
+          <label className="field-label" htmlFor="context">
+            Optional context
+          </label>
+          <textarea
+            id="context"
+            className="composer-input secondary"
+            rows={2}
+            placeholder="Add dates, arrears, whether notices were sent, and whether this is a tenant, owner, trustee, or body corporate dispute."
+            value={context}
+            onChange={(event) => setContext(event.target.value)}
+          />
+
+          <div className="chip-row">
+            {promptChips.map((prompt) => (
+              <button key={prompt} type="button" className="prompt-chip" onClick={() => setQuestion(prompt)}>
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          <div className="composer-actions">
+            <p className="subtle-copy">This is research support, not legal advice. Answers should identify supporting provisions and what still needs legal judgment.</p>
+            <button type="submit" className="primary-button" disabled={isLoading || !question.trim()}>
+              {isLoading ? "Thinking..." : "Ask Gemini"}
+            </button>
+          </div>
+        </form>
+
+        <div className="message-stack live-chat">
           {messages.length === 0 ? (
             <div className="empty-chat-state">
               <p className="empty-title">Open chat</p>
               <p className="empty-copy">
                 Describe the facts, include the building or scheme context, and ask what the indexed documents appear to allow, prohibit, or leave unresolved.
               </p>
-              <div className="chip-row">
-                {promptChips.map((prompt) => (
-                  <button key={prompt} type="button" className="prompt-chip" onClick={() => setQuestion(prompt)}>
-                    {prompt}
-                  </button>
-                ))}
-              </div>
             </div>
           ) : null}
 
@@ -169,40 +214,6 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
 
           {error ? <p className="error-banner">{error}</p> : null}
         </div>
-
-        <form className="composer" onSubmit={handleSubmit}>
-          <label className="field-label" htmlFor="question">
-            Question
-          </label>
-          <textarea
-            id="question"
-            className="composer-input primary"
-            rows={5}
-            placeholder="Example: A resident in Scheme Y keeps obstructing access and ignoring conduct rules. I want to dispute the behaviour. What do the indexed documents appear to allow?"
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-
-          <label className="field-label" htmlFor="context">
-            Optional context
-          </label>
-          <textarea
-            id="context"
-            className="composer-input secondary"
-            rows={3}
-            placeholder="Add names, dates, scheme type, what the trustees or landlord already did, and which facts are disputed or undocumented."
-            value={context}
-            onChange={(event) => setContext(event.target.value)}
-          />
-
-          <div className="composer-actions">
-            <p className="subtle-copy">This is research support, not legal advice. The answer should separate what the documents support from what still needs a lawyer or more facts.</p>
-            <button type="submit" className="primary-button" disabled={isLoading || !question.trim()}>
-              {isLoading ? "Thinking..." : "Ask Gemini"}
-            </button>
-          </div>
-        </form>
       </section>
 
       <aside className="insight-column">

@@ -6,25 +6,59 @@ import type { Citation, KnowledgeBase, KnowledgeSection, SourceDocument, TopicSu
 
 const DOC_DIRECTORIES = [process.cwd(), path.join(process.cwd(), "knowledge-base")];
 const STOP_WORDS = new Set([
+  "a",
+  "an",
   "the",
   "and",
+  "are",
+  "any",
+  "been",
+  "being",
+  "can",
+  "did",
+  "does",
   "for",
   "with",
   "that",
   "this",
   "from",
   "into",
+  "has",
   "have",
+  "had",
+  "how",
+  "if",
+  "i",
+  "im",
+  "is",
+  "it",
+  "its",
+  "me",
+  "my",
+  "not",
+  "of",
+  "on",
+  "or",
+  "our",
+  "out",
+  "paid",
+  "person",
+  "someone",
+  "somebody",
   "will",
   "your",
   "about",
   "would",
   "there",
   "their",
+  "them",
+  "they",
+  "then",
   "what",
   "when",
   "where",
   "which",
+  "who",
   "under",
   "could",
   "should",
@@ -35,6 +69,23 @@ const STOP_WORDS = new Set([
   "real",
   "estate"
 ]);
+
+const QUERY_EXPANSIONS: Record<string, string[]> = {
+  levy: ["levies", "contribution", "contributions", "arrear", "arrears", "due"],
+  levies: ["levy", "contribution", "contributions", "arrear", "arrears", "due"],
+  contribution: ["contributions", "levy", "levies", "arrear"],
+  contributions: ["contribution", "levy", "levies", "arrear"],
+  unpaid: ["arrear", "arrears", "due", "outstanding"],
+  arrear: ["arrears", "unpaid", "overdue", "outstanding", "levy", "contribution"],
+  arrears: ["arrear", "unpaid", "overdue", "outstanding", "levy", "contribution"],
+  owner: ["member", "trustee", "unit", "section"],
+  tenant: ["occupier", "lessee", "lease"],
+  dispute: ["complaint", "adjudication", "application", "ombud"],
+  fine: ["penalty", "sanction"],
+  rules: ["rule", "conduct", "management"],
+  trustees: ["trustee", "body", "corporate"],
+  body: ["corporate", "scheme", "association"]
+};
 
 const TOPIC_RULES: Array<{ label: string; sampleQuestion: string; keywords: string[] }> = [
   {
@@ -82,11 +133,39 @@ function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeToken(token: string) {
+  if (token.endsWith("ies") && token.length > 4) {
+    return `${token.slice(0, -3)}y`;
+  }
+
+  if (token.endsWith("s") && !token.endsWith("ss") && token.length > 4) {
+    return token.slice(0, -1);
+  }
+
+  return token;
+}
+
 function tokenize(value: string) {
   return normalizeWhitespace(value)
     .toLowerCase()
     .split(/[^a-z0-9]+/)
+    .map(normalizeToken)
     .filter((token) => token.length > 2 && !STOP_WORDS.has(token));
+}
+
+function buildQueryTerms(query: string) {
+  const baseTerms = tokenize(query);
+  const expandedTerms = new Set<string>(baseTerms);
+
+  for (const term of baseTerms) {
+    const expansions = QUERY_EXPANSIONS[term] ?? [];
+
+    for (const expansion of expansions) {
+      expandedTerms.add(normalizeToken(expansion));
+    }
+  }
+
+  return Array.from(expandedTerms);
 }
 
 function isHeading(line: string) {
@@ -292,7 +371,19 @@ export async function getKnowledgeBase() {
 
 export async function getFeaturedCitations(query: string, maxResults = 6) {
   const knowledgeBase = await getKnowledgeBase();
-  const queryTerms = tokenize(query);
+  const queryTerms = buildQueryTerms(query);
+  const rawQuery = normalizeWhitespace(query).toLowerCase();
+  const significantPhrases = [
+    "body corporate",
+    "sectional title",
+    "conduct rule",
+    "management rule",
+    "special levy",
+    "ordinary levy",
+    "exclusive use",
+    "community scheme",
+    "trustee meeting"
+  ].filter((phrase) => rawQuery.includes(phrase));
 
   const ranked = knowledgeBase.sections
     .map((section) => {
@@ -315,6 +406,26 @@ export async function getFeaturedCitations(query: string, maxResults = 6) {
 
         if (section.scoreTerms.includes(term)) {
           score += 1;
+        }
+      }
+
+      for (const phrase of significantPhrases) {
+        if (titleText.includes(phrase)) {
+          score += 12;
+        }
+
+        if (contentText.includes(phrase)) {
+          score += 8;
+        }
+      }
+
+      if (rawQuery.includes("levy") || rawQuery.includes("levies") || rawQuery.includes("contribution")) {
+        if (/lev(y|ies)|contribution|arrear|outstanding|due/.test(titleText)) {
+          score += 14;
+        }
+
+        if (/lev(y|ies)|contribution|arrear|outstanding|due/.test(contentText)) {
+          score += 10;
         }
       }
 
