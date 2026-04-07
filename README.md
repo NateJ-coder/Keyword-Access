@@ -7,6 +7,7 @@ Chat-first South African real estate law research app powered by Gemini 2.5 Flas
 - Extracts text from Word documents found in the project root and optional `knowledge-base/` folder.
 - Builds a searchable index of topics, articles, and source files.
 - Opens on a blank chat so users can ask fact-pattern questions in plain language.
+- Uses hybrid retrieval: keyword scoring plus Gemini embeddings, then reranks likely matches.
 - Retrieves relevant source chunks and sends only those chunks to Gemini for grounded answers.
 
 ## Environment
@@ -30,7 +31,8 @@ Then open `http://localhost:3000`.
 
 - Keep `.docx` files in the project root, or place more files in `knowledge-base/`.
 - The current workspace already includes `Key access.docx`, which will be indexed automatically.
-- The parser uses heading heuristics to create article-like sections for retrieval.
+- The parser uses heading heuristics to create smaller headed chunks for retrieval.
+- Semantic retrieval depends on `GEMINI_API_KEY`, because Gemini embeddings are used for meaning-based matching.
 
 ## App structure
 
