@@ -42,3 +42,9 @@ export type Citation = {
   topics: string[];
   excerpt: string;
 };
+
+export type WebResult = {
+  title: string;
+  link: string;
+  snippet: string;
+};

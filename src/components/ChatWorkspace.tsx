@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
 
-import type { Citation, ChatMessage, KnowledgeSection, SourceDocument, TopicSummary } from "@/lib/types";
+import type { Citation, ChatMessage, KnowledgeSection, SourceDocument, TopicSummary, WebResult } from "@/lib/types";
 
 type ChatWorkspaceProps = {
   featuredTopics: TopicSummary[];
@@ -13,7 +14,10 @@ type ChatWorkspaceProps = {
 
 type AssistantMessage = ChatMessage & {
   citations?: Citation[];
+  webResults?: WebResult[];
 };
+
+type ChatMode = "ask" | "draft";
 
 const SUGGESTED_PROMPTS = [
   "A resident in a sectional title building keeps breaching conduct rules. What remedies are normally available?",
@@ -21,12 +25,26 @@ const SUGGESTED_PROMPTS = [
   "What should I check before assuming a property-use restriction is legally enforceable?"
 ];
 
+const QUICK_TOPICS: Array<{ label: string; question: string }> = [
+  { label: "CSOS & HOA", question: "How does CSOS work for a community scheme dispute, including a homeowners association (HOA)?" },
+  { label: "Body Corporate", question: "What are trustees allowed to do to enforce conduct rules against an owner?" },
+  { label: "Levies & Arrears", question: "What remedies are available when an owner is in arrears on levies?" },
+  { label: "Conduct Breaches", question: "What is the process for dealing with a resident who repeatedly breaches conduct rules?" },
+  { label: "Lease & Tenancy", question: "What can a landlord do if a tenant breaches the lease or scheme rules?" }
+];
+
+const TONES = ["Formal", "Firm", "Friendly"] as const;
+
 export function ChatWorkspace({ featuredTopics, featuredSections, documents, totalSections }: ChatWorkspaceProps) {
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [context, setContext] = useState("");
+  const [mode, setMode] = useState<ChatMode>("ask");
+  const [tone, setTone] = useState<(typeof TONES)[number]>("Formal");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [showContext, setShowContext] = useState(false);
 
   const promptChips = useMemo(() => {
     const topicQuestions = featuredTopics.slice(0, 2).map((topic) => topic.sampleQuestion);
@@ -55,11 +73,13 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
         },
         body: JSON.stringify({
           messages: nextMessages,
-          context: trimmedContext
+          context: trimmedContext,
+          mode,
+          tone
         })
       });
 
-      const payload = (await response.json()) as { answer?: string; citations?: Citation[]; error?: string };
+      const payload = (await response.json()) as { answer?: string; citations?: Citation[]; webResults?: WebResult[]; error?: string };
 
       if (!response.ok || !payload.answer) {
         throw new Error(payload.error ?? "The assistant could not generate a response.");
@@ -72,7 +92,8 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
         {
           role: "assistant",
           content: answer,
-          citations: payload.citations ?? []
+          citations: payload.citations ?? [],
+          webResults: payload.webResults ?? []
         }
       ]);
     } catch (submissionError) {
@@ -94,6 +115,24 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
     }
   }
 
+  async function handleCopy(text: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((current) => (current === index ? null : current)), 1800);
+    } catch {
+      // Clipboard access denied or unavailable; ignore silently.
+    }
+  }
+
+  function handleClearChat() {
+    setMessages([]);
+    setContext("");
+    setShowContext(false);
+    setError(null);
+    setCopiedIndex(null);
+  }
+
   return (
     <div className="chat-shell">
       <section className="chat-column surface-panel">
@@ -102,12 +141,47 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
             <p className="eyebrow">South African Property Research</p>
             <h1>Ask a property-law question.</h1>
             <p className="subtle-copy lead-copy">
-              Ask in plain English. The assistant searches the indexed legal documents first, then answers with citations and gaps.
+              Ask in plain English. The assistant checks the indexed documents first, gives a short direct answer, and surfaces the exact articles it used.
             </p>
           </div>
-          <p className="subtle-copy">
-            Start with the facts: the scheme, the conduct, what has happened already, and what you want to challenge or enforce.
-          </p>
+          <div className="chat-header-aside">
+            <p className="subtle-copy">
+              Start with the facts: the scheme, the conduct, what has happened already, and what you want to challenge or enforce.
+            </p>
+            {messages.length > 0 ? (
+              <button type="button" className="clear-chat-button" onClick={handleClearChat}>
+                Clear chat
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="view-toggle" role="tablist" aria-label="Response mode">
+          <button
+            type="button"
+            className={mode === "ask" ? "toggle-btn is-active" : "toggle-btn"}
+            onClick={() => setMode("ask")}
+          >
+            Get an answer
+          </button>
+          <button
+            type="button"
+            className={mode === "draft" ? "toggle-btn is-active" : "toggle-btn"}
+            onClick={() => setMode("draft")}
+          >
+            Draft a message
+          </button>
+        </div>
+
+        <div className="quick-topics">
+          <p className="quick-topics-label">Quick topics</p>
+          <div className="topic-chip-row">
+            {QUICK_TOPICS.map((topic) => (
+              <button key={topic.label} type="button" className="topic-chip" onClick={() => setQuestion(topic.question)}>
+                {topic.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="utility-row">
@@ -135,29 +209,61 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
 
         <form className="composer top-composer" onSubmit={handleSubmit}>
           <label className="field-label" htmlFor="question">
-            Question
+            {mode === "draft" ? "What should the message cover?" : "Question"}
           </label>
           <textarea
             id="question"
             className="composer-input primary"
             rows={4}
-            placeholder="Example: An owner in a sectional title scheme has not paid levies for several months. What remedies appear to be available to the body corporate under the indexed documents?"
+            placeholder={
+              mode === "draft"
+                ? "Example: Draft a message to an owner who is three months behind on levies, warning them of the next step."
+                : "Example: An owner in a sectional title scheme has not paid levies for several months. What remedies appear to be available to the body corporate under the indexed documents?"
+            }
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={handleKeyDown}
           />
 
-          <label className="field-label" htmlFor="context">
-            Optional context
-          </label>
-          <textarea
-            id="context"
-            className="composer-input secondary"
-            rows={2}
-            placeholder="Add dates, arrears, whether notices were sent, and whether this is a tenant, owner, trustee, or body corporate dispute."
-            value={context}
-            onChange={(event) => setContext(event.target.value)}
-          />
+          {showContext ? (
+            <>
+              <div className="context-field-header">
+                <label className="field-label" htmlFor="context">
+                  Optional context
+                </label>
+                <button type="button" className="context-toggle" onClick={() => setShowContext(false)}>
+                  Hide
+                </button>
+              </div>
+              <textarea
+                id="context"
+                className="composer-input secondary"
+                rows={2}
+                placeholder="Add dates, arrears, whether notices were sent, and whether this is a tenant, owner, trustee, or body corporate dispute."
+                value={context}
+                onChange={(event) => setContext(event.target.value)}
+              />
+            </>
+          ) : (
+            <button type="button" className="context-toggle add" onClick={() => setShowContext(true)}>
+              + Add context (dates, notices, arrears)
+            </button>
+          )}
+
+          {mode === "draft" ? (
+            <div className="tone-field">
+              <label className="field-label" htmlFor="tone">
+                Tone
+              </label>
+              <select id="tone" value={tone} onChange={(event) => setTone(event.target.value as (typeof TONES)[number])}>
+                {TONES.map((toneOption) => (
+                  <option key={toneOption} value={toneOption}>
+                    {toneOption}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <div className="chip-row">
             {promptChips.map((prompt) => (
@@ -168,9 +274,14 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
           </div>
 
           <div className="composer-actions">
-            <p className="subtle-copy">This is research support, not legal advice. Answers should identify supporting provisions and what still needs legal judgment.</p>
+            <p className="subtle-copy">
+              {mode === "draft"
+                ? "Review before sending. This drafts from the indexed documents only."
+                : "This is research support, not legal advice."}{" "}
+              Enter to send, Shift+Enter for a new line.
+            </p>
             <button type="submit" className="primary-button" disabled={isLoading || !question.trim()}>
-              {isLoading ? "Thinking..." : "Ask Gemini"}
+              {isLoading ? (mode === "draft" ? "Drafting..." : "Thinking...") : mode === "draft" ? "Draft message" : "Get answer"}
             </button>
           </div>
         </form>
@@ -187,18 +298,27 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
 
           {messages.map((message, index) => (
             <article key={`${message.role}-${index}-${message.content.slice(0, 16)}`} className={`message-bubble ${message.role}`}>
-              <p className="message-role">{message.role === "user" ? "You" : "Gemini"}</p>
+              <p className="message-role">{message.role === "user" ? "You" : "Keyword Access"}</p>
               <div className="message-content">
                 {message.content.split(/\n{2,}/).map((paragraph) => (
                   <p key={paragraph}>{paragraph}</p>
                 ))}
               </div>
+              {message.role === "assistant" ? (
+                <div className="message-footer">
+                  <button type="button" className="copy-button" onClick={() => handleCopy(message.content, index)}>
+                    {copiedIndex === index ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              ) : null}
               {message.role === "assistant" && message.citations && message.citations.length > 0 ? (
                 <div className="citation-grid">
                   {message.citations.map((citation) => (
                     <article key={citation.id} className="citation-card">
                       <p className="article-metadata">{citation.documentName}</p>
-                      <strong>{citation.title}</strong>
+                      <Link href={`/articles#${citation.id}`} className="citation-card-link">
+                        {citation.title}
+                      </Link>
                       <p>{citation.excerpt}</p>
                       <div className="citation-list">
                         {citation.topics.map((topic) => (
@@ -211,13 +331,27 @@ export function ChatWorkspace({ featuredTopics, featuredSections, documents, tot
                   ))}
                 </div>
               ) : null}
+              {message.role === "assistant" && message.webResults && message.webResults.length > 0 ? (
+                <div className="web-results">
+                  <p className="web-results-label">From the web just now &middot; verify before relying on these</p>
+                  <div className="web-results-grid">
+                    {message.webResults.map((result) => (
+                      <a key={result.link} href={result.link} target="_blank" rel="noreferrer" className="web-result-card">
+                        <p className="web-result-title">{result.title}</p>
+                        <p className="web-result-snippet">{result.snippet}</p>
+                        <p className="web-result-link">{new URL(result.link).hostname.replace(/^www\./, "")}</p>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </article>
           ))}
 
           {isLoading ? (
             <article className="message-bubble assistant pending">
-              <p className="message-role">Gemini</p>
-              <p className="subtle-copy">Reviewing the indexed source material and drafting a citation-first answer.</p>
+              <p className="message-role">Keyword Access</p>
+              <p className="subtle-copy">{mode === "draft" ? "Drafting a short message from the indexed material." : "Checking the indexed source material."}</p>
             </article>
           ) : null}
 

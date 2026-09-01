@@ -13,3 +13,5 @@ pnpm-debug.log*
 dist/
 coverage/
 .vercel/
+tsconfig.tsbuildinfo
+

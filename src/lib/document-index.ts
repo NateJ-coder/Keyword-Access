@@ -91,10 +91,21 @@ const QUERY_EXPANSIONS: Record<string, string[]> = {
   fine: ["penalty", "sanction"],
   rules: ["rule", "conduct", "management"],
   trustees: ["trustee", "body", "corporate"],
-  body: ["corporate", "scheme", "association"]
+  body: ["corporate", "scheme", "association"],
+  hoa: ["homeowner", "homeowners association", "home owners association", "community scheme", "association"],
+  homeowner: ["hoa", "homeowners association", "home owners association", "community scheme", "association"],
+  association: ["community scheme", "body corporate", "hoa", "homeowner"],
+  csos: ["community schemes ombud service", "ombud", "adjudicator", "adjudication"],
+  ombud: ["csos", "adjudicator", "adjudication", "community schemes ombud service"],
+  adjudication: ["ombud", "csos", "adjudicator", "dispute"]
 };
 
 const TOPIC_RULES: Array<{ label: string; sampleQuestion: string; keywords: string[] }> = [
+  {
+    label: "CSOS & Community Schemes",
+    sampleQuestion: "How does a CSOS dispute or adjudication application work for a community scheme, including a homeowners association?",
+    keywords: ["csos", "community scheme", "ombud", "adjudicator", "adjudication", "chief ombud"]
+  },
   {
     label: "Body Corporate",
     sampleQuestion: "Can a body corporate fine or restrict an owner for disruptive behaviour?",
@@ -131,7 +142,6 @@ let cachedKnowledgeBase: Promise<KnowledgeBase> | null = null;
 let cachedSectionEmbeddings: Promise<Map<string, number[]>> | null = null;
 
 const EMBEDDING_MODEL = "models/gemini-embedding-001";
-const RERANK_MODEL = "gemini-2.5-flash";
 
 function slugify(value: string) {
   return value
@@ -366,86 +376,6 @@ async function getSemanticScores(query: string, sections: KnowledgeSection[]) {
   }
 }
 
-async function rerankWithGemini(query: string, candidates: RankedSection[], maxResults: number) {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey || candidates.length === 0) {
-    return candidates.slice(0, maxResults);
-  }
-
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${RERANK_MODEL}:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [
-            {
-              text:
-                "You rerank legal research snippets. Return strict JSON with one key named selectedIds. The value must be an array of the best candidate ids in order of relevance. Never invent ids. Prefer snippets that directly answer the legal issue or remedy."
-            }
-          ]
-        },
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: JSON.stringify({
-                  question: query,
-                  candidates: candidates.slice(0, 10).map((entry) => ({
-                    id: entry.section.id,
-                    title: entry.section.title,
-                    documentName: entry.section.documentName,
-                    topics: entry.section.topics,
-                    excerpt: clipText(entry.section.content, 420)
-                  }))
-                })
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: "application/json"
-        }
-      })
-    });
-
-    const payload = (await response.json()) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{
-            text?: string;
-          }>;
-        };
-      }>;
-    };
-
-    if (!response.ok) {
-      return candidates.slice(0, maxResults);
-    }
-
-    const jsonText = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
-    const parsed = JSON.parse(jsonText) as { selectedIds?: string[] };
-
-    if (!parsed.selectedIds || parsed.selectedIds.length === 0) {
-      return candidates.slice(0, maxResults);
-    }
-
-    const positions = new Map(parsed.selectedIds.map((id, index) => [id, index]));
-
-    return candidates
-      .filter((entry) => positions.has(entry.section.id))
-      .sort((left, right) => (positions.get(left.section.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(right.section.id) ?? Number.MAX_SAFE_INTEGER))
-      .slice(0, maxResults);
-  } catch {
-    return candidates.slice(0, maxResults);
-  }
-}
-
 async function findDocxFiles() {
   const discovered = new Map<string, string>();
 
@@ -593,7 +523,12 @@ export async function getKnowledgeBase() {
   return cachedKnowledgeBase;
 }
 
-export async function getFeaturedCitations(query: string, maxResults = 6) {
+export type RetrievalResult = {
+  sections: KnowledgeSection[];
+  topScore: number;
+};
+
+export async function getFeaturedCitations(query: string, maxResults = 6): Promise<RetrievalResult> {
   const knowledgeBase = await getKnowledgeBase();
   const queryTerms = buildQueryTerms(query);
   const rawQuery = normalizeWhitespace(query).toLowerCase();
@@ -607,7 +542,11 @@ export async function getFeaturedCitations(query: string, maxResults = 6) {
     "ordinary levy",
     "exclusive use",
     "community scheme",
-    "trustee meeting"
+    "trustee meeting",
+    "csos",
+    "adjudication order",
+    "homeowners association",
+    "home owners association"
   ].filter((phrase) => rawQuery.includes(phrase));
 
   const rankedCandidates = knowledgeBase.sections
@@ -671,14 +610,22 @@ export async function getFeaturedCitations(query: string, maxResults = 6) {
     .filter((entry) => entry.combinedScore > 0 || entry.semanticScore > 0.2)
     .sort((left, right) => right.combinedScore - left.combinedScore);
 
-  const reranked = await rerankWithGemini(query, rankedCandidates, maxResults);
-  const ranked = reranked.map((entry) => entry.section);
+  // Only keep candidates that are genuinely close to the best match for this
+  // question. Without this, a loosely-related section (matching on one common
+  // word, or a middling embedding similarity) would still get shown as a
+  // "supporting source" just to pad the citation list out to maxResults, even
+  // when the question really only had one or two on-point clauses.
+  const RELEVANCE_RATIO = 0.4;
+  const topScore = rankedCandidates[0]?.combinedScore ?? 0;
+  const relevantCandidates = topScore > 0 ? rankedCandidates.filter((entry) => entry.combinedScore >= topScore * RELEVANCE_RATIO) : rankedCandidates;
+
+  const ranked = relevantCandidates.slice(0, maxResults).map((entry) => entry.section);
 
   if (ranked.length > 0) {
-    return ranked;
+    return { sections: ranked, topScore };
   }
 
-  return knowledgeBase.sections.slice(0, maxResults);
+  return { sections: knowledgeBase.sections.slice(0, maxResults), topScore: 0 };
 }
 
 export function toCitations(sections: KnowledgeSection[]): Citation[] {

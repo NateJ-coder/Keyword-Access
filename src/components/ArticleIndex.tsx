@@ -46,7 +46,7 @@ export function ArticleIndex({ sections }: ArticleIndexProps) {
 
       <div className="article-stack large">
         {filteredSections.map((section) => (
-          <article key={section.id} className="article-card detailed">
+          <article key={section.id} id={section.id} className="article-card detailed">
             <div className="article-card-topline">
               <p className="article-metadata">{section.documentName}</p>
               <div className="tag-row">
