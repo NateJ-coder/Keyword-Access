@@ -142,6 +142,7 @@ let cachedKnowledgeBase: Promise<KnowledgeBase> | null = null;
 let cachedSectionEmbeddings: Promise<Map<string, number[]>> | null = null;
 
 const EMBEDDING_MODEL = "models/gemini-embedding-001";
+const MIN_SEMANTIC_SIMILARITY = 0.5;
 
 function slugify(value: string) {
   return value
@@ -342,7 +343,10 @@ async function getSectionEmbeddings(sections: KnowledgeSection[]) {
       });
 
       return embeddings;
-    })();
+    })().catch((error: unknown) => {
+      cachedSectionEmbeddings = null;
+      throw error;
+    });
   }
 
   return cachedSectionEmbeddings;
@@ -372,6 +376,7 @@ async function getSemanticScores(query: string, sections: KnowledgeSection[]) {
 
     return semanticScores;
   } catch {
+    console.warn("Semantic retrieval failed; using keyword search for this request.");
     return new Map<string, number>();
   }
 }
@@ -551,25 +556,19 @@ export async function getFeaturedCitations(query: string, maxResults = 6): Promi
 
   const rankedCandidates = knowledgeBase.sections
     .map((section) => {
-      const titleText = `${section.title} ${section.documentName}`.toLowerCase();
+      const titleText = section.title === section.documentName ? "" : section.title.toLowerCase();
       const contentText = section.content.toLowerCase();
+      const titleTerms = new Set(tokenize(titleText));
+      const contentTerms = new Set(tokenize(contentText));
       let keywordScore = 0;
 
       for (const term of queryTerms) {
-        if (titleText.includes(term)) {
+        if (term.includes(" ") ? titleText.includes(term) : titleTerms.has(term)) {
           keywordScore += 6;
         }
 
-        if (section.topics.some((topic) => topic.toLowerCase().includes(term))) {
-          keywordScore += 4;
-        }
-
-        if (contentText.includes(term)) {
+        if (term.includes(" ") ? contentText.includes(term) : contentTerms.has(term)) {
           keywordScore += 2;
-        }
-
-        if (section.scoreTerms.includes(term)) {
-          keywordScore += 1;
         }
       }
 
@@ -593,12 +592,8 @@ export async function getFeaturedCitations(query: string, maxResults = 6): Promi
         }
       }
 
-      if (queryTerms.length === 0) {
-        keywordScore = 1;
-      }
-
       const semanticScore = semanticScores.get(section.id) ?? 0;
-      const combinedScore = keywordScore + semanticScore * 18;
+      const combinedScore = keywordScore + (semanticScore >= MIN_SEMANTIC_SIMILARITY ? semanticScore * 18 : 0);
 
       return {
         section,
@@ -607,7 +602,7 @@ export async function getFeaturedCitations(query: string, maxResults = 6): Promi
         combinedScore
       } satisfies RankedSection;
     })
-    .filter((entry) => entry.combinedScore > 0 || entry.semanticScore > 0.2)
+    .filter((entry) => entry.keywordScore > 0 || entry.semanticScore >= MIN_SEMANTIC_SIMILARITY)
     .sort((left, right) => right.combinedScore - left.combinedScore);
 
   // Only keep candidates that are genuinely close to the best match for this
@@ -625,7 +620,7 @@ export async function getFeaturedCitations(query: string, maxResults = 6): Promi
     return { sections: ranked, topScore };
   }
 
-  return { sections: knowledgeBase.sections.slice(0, maxResults), topScore: 0 };
+  return { sections: [], topScore: 0 };
 }
 
 export function toCitations(sections: KnowledgeSection[]): Citation[] {

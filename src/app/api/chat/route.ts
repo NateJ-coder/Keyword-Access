@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { getFeaturedCitations, toCitations } from "@/lib/document-index";
+import { getFeaturedCitations, getKnowledgeBase, toCitations } from "@/lib/document-index";
 import { searchWeb } from "@/lib/web-search";
 import type { ChatMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 type ChatMode = "ask" | "draft";
+
+const APP_DESCRIPTION = "Keyword Access is Fuzio's South African property-law research assistant for CSOS, sectional title and body corporate disputes. It searches the loaded documents, answers questions with source excerpts, and drafts messages. It provides research support, not legal advice.";
 
 // Below this combined relevance score, the indexed CSOS Act / STSMA / rules
 // material is treated as too thin to be the whole answer, and a live,
@@ -16,8 +18,9 @@ const LOW_CONFIDENCE_THRESHOLD = 10;
 
 const ASK_SYSTEM_INSTRUCTION = [
   "You are the Keyword Access assistant, used by Fuzio staff who are in the middle of a live dispute and need a fast, plain-language answer.",
+  APP_DESCRIPTION,
   "You are not a law firm and this is not legal advice.",
-  "Use only the supplied retrieved source material from the indexed documents (the CSOS Act, Sectional Titles Management Act, and management rules) as your primary authority. If it does not cover the question, say so in one short sentence instead of guessing.",
+  "For questions about the application itself, use the application description above. For legal claims, use only the supplied retrieved source material as authority. If the passages do not cover the legal question, say that the retrieved passages do not establish the answer; do not claim the entire knowledge base lacks it. Answer any supported part and ask one specific clarifying question when useful instead of guessing.",
   "Keep the whole answer short: 2 to 5 short sentences, plain conversational language, no headings, no markdown, no bullet lists.",
   "Lead with the direct answer to the question first. Add a caveat only if it changes what the person should do next.",
   "Do not quote long passages or restate full clause text: the exact source excerpts are already shown to the user separately as citation cards, so just reference the relevant rule or section briefly by name if useful.",
@@ -43,6 +46,12 @@ function formatConversation(messages: ChatMessage[]) {
   return messages.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
 }
 
+function isAppOverviewQuestion(question: string) {
+  const normalized = question.toLowerCase().replace(/[?.!]+$/g, "").replace(/\s+/g, " ").trim();
+  return /^(?:what is|what's|tell me about|explain) (?:the )?keyword\s*access(?: (?:app|application))?(?: and what does it cover)?$/.test(normalized)
+    || /^(?:what (?:does (?:keyword\s*access|this app) (?:do|cover)|can you do)|how does keyword\s*access work|who are you)$/.test(normalized);
+}
+
 export async function POST(request: Request) {
   try {
     const { messages, context, mode, tone } = (await request.json()) as {
@@ -59,13 +68,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "A question is required." }, { status: 400 });
     }
 
+    const chatMode: ChatMode = mode === "draft" ? "draft" : "ask";
+
+    if (chatMode === "ask" && isAppOverviewQuestion(latestUserMessage)) {
+      const knowledgeBase = await getKnowledgeBase();
+      const inventory = knowledgeBase.documents.length > 0
+        ? `Currently loaded: ${knowledgeBase.documents.map((document) => document.name).join(", ")} (${knowledgeBase.sections.length} indexed sections). Coverage depends on those documents.`
+        : "No source documents are currently loaded, so document-based legal answers are not available yet.";
+      return NextResponse.json({ answer: `${APP_DESCRIPTION} ${inventory}`, citations: [], webResults: [] });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json({ error: "Set GEMINI_API_KEY in the environment before using chat." }, { status: 503 });
     }
 
-    const chatMode: ChatMode = mode === "draft" ? "draft" : "ask";
     const { sections: relevantSections, topScore } = await getFeaturedCitations(`${latestUserMessage}\n${context ?? ""}`);
     const isLowConfidence = relevantSections.length === 0 || topScore < LOW_CONFIDENCE_THRESHOLD;
     const webResults = isLowConfidence ? await searchWeb(`${latestUserMessage} South Africa community scheme`) : [];

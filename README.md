@@ -9,6 +9,8 @@ Fuzio's chat-first South African property-law research tool, built for staff han
 - Opens on a blank chat so staff can ask fact-pattern questions in plain language.
 - Uses hybrid retrieval: keyword scoring plus Gemini embeddings, combined into one relevance score per section (no separate reranking call, so answers come back faster).
 - Retrieves relevant source chunks and sends only those chunks to Gemini for a short, grounded answer.
+- Answers basic questions about Keyword Access from an application description and the actual loaded-document inventory, without attaching unrelated legal citations.
+- Searches require passage/heading keyword matches or a minimum semantic similarity; unmatched searches no longer return arbitrary sections. If embeddings fail, the server logs a warning and falls back to keyword search, with failed document embeddings retried on a later request.
 - Two response modes:
   - **Get an answer** — a 2 to 5 sentence direct answer, no headings or long quotes.
   - **Draft a message** — a ready-to-send message to an owner, tenant, or trustee, in a chosen tone (Formal, Firm, Friendly), based only on the indexed material.
@@ -45,6 +47,8 @@ npm run dev
 ```
 
 Then open `http://localhost:3000`.
+
+Run `npm test` for the focused chat and retrieval regression tests. These use mocked documents and provider responses, so no API key or network access is required.
 
 ## Knowledge base
 
